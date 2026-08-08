@@ -10,6 +10,17 @@ B declines the Lead decision and makes the game behave as normal. So you shouldn
 
 <img width="2008" height="800" alt="image" src="https://github.com/user-attachments/assets/920e6a5f-4753-4183-b42f-96b6a73987fe" />
 
+**Check out my other mods:**<br>
+* [Autofire A/B + Directional Keys Mod](https://github.com/ZyranCZ/autofire)<br>
+* [Steel and/or Fairy and/or Typing Charts](https://github.com/ZyranCZ/Steel-and-or-Fairy-and-or-Typing-Charts)<br>
+* [Move Category (PHYS/SPEC) Preview](https://github.com/ZyranCZ/Move-Category-Preview)<br>
+* [Special Stat Split
+](https://github.com/ZyranCZ/Special-Stat-Split/)<br>
+* [Enemy HP Visible](https://github.com/ZyranCZ/Enemy-HP)
+* [Can Always Escape](https://github.com/ZyranCZ/Can-Always-Escape)
+* [Trainers Let You Choose Lead Pokemon](https://github.com/ZyranCZ/Trainers-Let-You-Choose-Lead-Pokemon)
+* [Evolve in Battle](https://github.com/ZyranCZ/Evolve-in-Battle)
+* 
 ## Install
 
 Unzip the latest release into your game's `mods/` folder, press <kbd>F10</kbd>,
