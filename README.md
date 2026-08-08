@@ -6,6 +6,8 @@ Gen 1 sends out party slot 1 and gives you no say. This asks which Pokémon to s
 
 It certainly removes a certain risk from the game, but that's anyone's decision. 
 
+B declines the Lead decision and makes the game behave as normal. So you shouldn't feel overwhelmed that it keeps asking you. 
+
 <img width="2008" height="800" alt="image" src="https://github.com/user-attachments/assets/920e6a5f-4753-4183-b42f-96b6a73987fe" />
 
 ## Install
