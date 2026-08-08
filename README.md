@@ -4,6 +4,8 @@ A mod for [gen1recomp](https://github.com/bryanthaboi/gen1recomp).
 
 Gen 1 sends out party slot 1 and gives you no say. This asks which Pokémon to send out **after the opposing one is on screen** and removes the moment of feeling dumb that your trainer sent out Pidgeot against Raichu etc. 
 
+It certainly removes a certain risk from the game, but that's anyone's decision. 
+
 <img width="2008" height="800" alt="image" src="https://github.com/user-attachments/assets/920e6a5f-4753-4183-b42f-96b6a73987fe" />
 
 ## Install
