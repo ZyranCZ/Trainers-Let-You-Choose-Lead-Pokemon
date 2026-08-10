@@ -1,68 +1,92 @@
 # Trainers Let You Choose Lead Pokemon
 
-A mod for [gen1recomp](https://github.com/bryanthaboi/gen1recomp).
+Gen 1 sends out party slot 1 and gives you no say. The usual answer is to park
+your strongest Pokémon there permanently, which quietly removes the matchup
+decision from the game.
 
-Gen 1 sends out party slot 1 and gives you no say. This asks which Pokémon to send out **after the opposing one is on screen** and removes the moment of feeling dumb that your trainer sent out Pidgeot against Raichu etc. 
+This asks which Pokémon to send out **once the opposing one is on screen**, so
+the choice is made with the information a trainer would actually have.
 
-It certainly removes a certain risk from the game, but that's anyone's decision. 
+## Try it
 
-B declines the Lead decision and makes the game behave as normal. So you shouldn't feel overwhelmed that it keeps asking you. 
-
-<img width="2008" height="800" alt="image" src="https://github.com/user-attachments/assets/920e6a5f-4753-4183-b42f-96b6a73987fe" />
-
-
-**Check out my other mods:**<br>
-* [Autofire A/B + Directional Keys Mod](https://github.com/ZyranCZ/autofire)<br>
-* [Steel and/or Fairy and/or Typing Charts](https://github.com/ZyranCZ/Steel-and-or-Fairy-and-or-Typing-Charts)<br>
-* [Move Category (PHYS/SPEC) Preview](https://github.com/ZyranCZ/Move-Category-Preview)<br>
-* [Special Stat Split
-](https://github.com/ZyranCZ/Special-Stat-Split/)<br>
-* [Enemy HP Visible](https://github.com/ZyranCZ/Enemy-HP)
-* [Can Always Escape](https://github.com/ZyranCZ/Can-Always-Escape)
-* [Trainers Let You Choose Lead Pokemon](https://github.com/ZyranCZ/Trainers-Let-You-Choose-Lead-Pokemon)
-* [Evolve in Battle](https://github.com/ZyranCZ/Evolve-in-Battle)
-* [HELP Story Guide](https://github.com/ZyranCZ/HELP-Story-Guide/)
-* [Professor Oak's Pokémon DV/Stat Appraisal](https://github.com/ZyranCZ/Professor-Oak-DV-STAT-Evaluation)
-
-
-
-* 
-## Install
-
-Unzip the latest release into your game's `mods/` folder, press <kbd>F10</kbd>,
-enable **Trainers Let You Choose Lead Pokemon**.
+1. Copy the `choose_lead` folder into the game's `mods/` directory.
+2. Launch the game, press **F10**, enable **Trainers Let You Choose Lead Pokemon**.
+3. Walk into a trainer.
 
 ## Options
 
-| Setting | Values | Default |
+| Row | Values | Default |
 | --- | --- | --- |
 | `CHOOSE LEAD` | ON / OFF | ON |
 | `ASK BEFORE` | TRAINERS / ALL BATTLES | TRAINERS |
 
 Wild encounters are frequent and mostly one-sided, so asking every time turns a
-decision into a chore. `ALL BATTLES` adds them if you want it.
+decision into a chore. Trainer battles are where the matchup matters, so they
+are the default; `ALL BATTLES` adds wild encounters.
 
-## Notes
+## Where it slots in
 
-**Your party is not reordered.** It behaves like a mid-battle switch — slot 1
-stays slot 1, the save is untouched, and the mod can be removed at any time.
+`BattleState:enter` builds the whole intro as a queue of rows and only then
+emits `battle.started` — the rows exist but none has run yet. So a listener can
+insert a row into that queue before a single frame of the intro is drawn, which
+is the seam this mod uses. No hook, no wrapping, and the engine's own
+sequencing is left intact.
 
-**B declines**, and so does picking your existing lead. Picking a fainted one
-gets the game's own `There's no will to fight!` and the picker back.
+The row goes in at the `BATTLE_START_SENDOUT` wait, which `core.asm` pays
+between the opponent appearing and the player's send-out. That puts the picker
+exactly where the decision belongs: the foe is on screen, Red has not thrown
+yet. Both that wait and the greeting row are located by content rather than by
+a counted offset, so an extra row added to the intro by the engine or another
+mod cannot shift the insert onto the wrong step — and an intro it does not
+recognise is left alone rather than guessed at.
 
-**No free EXP.** The Pokémon that stayed in the ball is struck off the
-participant list, so it doesn't collect from a fight it never entered.
+## What the pick changes
 
-**Link battles are excluded** — both sides send out together, and choosing
-after seeing the opponent would be neither fair nor in step with the other
-client. The Safari Zone and the old man's demo are out too.
+Only which battler is active. The party is **not** reordered, matching a
+mid-battle switch — slot 1 stays slot 1, nothing about the save changes, and
+the mod can be removed at any time.
 
-The picker is inserted into the intro queue that `BattleState:enter` builds
-before `battle.started` fires, at the wait the engine already pays between the
-opponent appearing and your send-out. Both that wait and the `Go! X!` row are
-found by content rather than position, so an intro this mod doesn't recognise
-is left alone rather than guessed at.
+`Go! X!` is baked into a queue row when `enter` builds it, so picking a
+different Pokémon rewrites that row in place. `markParticipant` is re-run too, and the outgoing lead is struck off
+first: that function only ever adds to `self.participants`, and `enter` already
+ran it while building the intro, so marking the new one on top would leave both
+in the set and hand a free level to the Pokémon that never came out.
 
-Tests run headless: `lua tests/choose_lead_test.lua`
+`battle.battler_switched` is deliberately not emitted: this is the initial
+send-out, which vanilla does not emit either, and a mod listening for switch-ins
+should not see a switch that did not happen.
 
-MIT.
+## Where it stays out
+
+**Link battles.** Both sides send out together, and seeing the opponent before
+choosing would be neither fair nor in step with the other client.
+
+**The Safari Zone** has no player battler at all, and **the old man's demo**
+drives its own menu.
+
+**Fewer than two healthy Pokémon.** There is nothing to decide, so no prompt —
+an empty question every time you leave town with one Pokémon would be worse
+than no mod.
+
+## Declining
+
+**B** closes the picker and sends out the vanilla lead, and so does picking that
+lead deliberately. Either way there is no dead end.
+
+Picking a **fainted** Pokémon gets the same refusal as trying to switch to one
+mid-battle — `There's no will to fight!` — and then the picker back.
+`forceSwitch` does not guard fainted picks itself: `PartyMenu` pops and calls
+back for whatever the cursor is on, and the engine's own `ChooseNextMon` caller
+filters exactly the same way.
+
+That caller can stop at the message, because the menu-phase guard reopens the
+menu for a player with nothing out. Here the vanilla lead is alive and no guard
+fires, so the reopen is explicit: `nextInsert` is zeroed first (only `fn` rows
+reset it, and this is a `ui` row), and since the queue is consumed from the
+front the message lands next and the picker right behind it.
+
+## Tests
+
+```
+lua tests/choose_lead_test.lua
+```
