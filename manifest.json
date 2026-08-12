@@ -1,13 +1,16 @@
 {
   "id": "choose_lead",
   "name": "Trainers Let You Choose Lead Pokemon",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "github": "ZyranCZ/Trainers-Let-You-Choose-Lead-Pokemon",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
+  "games": [
+    "gen1",
+    "gen2"
+  ],
   "category": "TWEAK",
-  "game_version": ">=0.0.0-0 <2.0.0",
   "priority": 100,
   "affects_link": false,
   "permissions": [

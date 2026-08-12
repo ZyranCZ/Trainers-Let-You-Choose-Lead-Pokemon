@@ -1,17 +1,25 @@
 # Trainers Let You Choose Lead Pokemon
 
-Gen 1 sends out party slot 1 and gives you no say. The usual answer is to park
-your strongest Pokémon there permanently, which quietly removes the matchup
-decision from the game.
+Normally the game sends out your first usable party Pokemon automatically. This
+mod waits until the opponent is visible, then lets you choose which healthy
+Pokemon should make the **initial** send-out.
 
-This asks which Pokémon to send out **once the opposing one is on screen**, so
-the choice is made with the information a trainer would actually have.
+The resulting flow is:
 
-## Try it
+> **Opponent appears first -> choose your lead -> selected Pokemon is sent out normally.**
 
-1. Copy the `choose_lead` folder into the game's `mods/` directory.
-2. Launch the game, press **F10**, enable **Trainers Let You Choose Lead Pokemon**.
-3. Walk into a trainer.
+Your party is never reordered.
+
+## Supported games
+
+- **Pokemon Red**
+- **Pokemon Blue**
+- **Pokemon Yellow**
+- **Pokemon Gold (Gen 2)**
+
+Version **2.0.0** is the first stable release line with Gen 2 support. The original
+Red / Blue / Yellow behavior is preserved while Gold uses its dedicated Gen 2
+battle backend.
 
 ## Options
 
@@ -20,73 +28,81 @@ the choice is made with the information a trainer would actually have.
 | `CHOOSE LEAD` | ON / OFF | ON |
 | `ASK BEFORE` | TRAINERS / ALL BATTLES | TRAINERS |
 
-Wild encounters are frequent and mostly one-sided, so asking every time turns a
-decision into a chore. Trainer battles are where the matchup matters, so they
-are the default; `ALL BATTLES` adds wild encounters.
+`TRAINERS` prompts only for trainer battles. `ALL BATTLES` also enables the
+prompt for compatible wild encounters.
 
-## Where it slots in
+Options are live and do not require restarting the game.
 
-`BattleState:enter` builds the whole intro as a queue of rows and only then
-emits `battle.started` — the rows exist but none has run yet. So a listener can
-insert a row into that queue before a single frame of the intro is drawn, which
-is the seam this mod uses. No hook, no wrapping, and the engine's own
-sequencing is left intact.
+## How it behaves
 
-The row goes in at the `BATTLE_START_SENDOUT` wait, which `core.asm` pays
-between the opponent appearing and the player's send-out. That puts the picker
-exactly where the decision belongs: the foe is on screen, Red has not thrown
-yet. Both that wait and the greeting row are located by content rather than by
-a counted offset, so an extra row added to the intro by the engine or another
-mod cannot shift the insert onto the wrong step — and an intro it does not
-recognise is left alone rather than guessed at.
+The opponent is shown before the picker opens. Selecting a Pokemon immediately
+uses it as the initial lead; there is no SWITCH / STATS submenu.
 
-## What the pick changes
+- **B** cancels the picker and keeps the normal vanilla lead.
+- Selecting the already-provisional lead is a no-op.
+- Fainted Pokemon are rejected and the picker reopens.
+- In Gold, Eggs are also rejected with Gold's native-style message.
+- If fewer than two legal battlers are available, no picker is shown.
+- Party order and save data are not changed.
+- The initial choice is **not treated as a mid-battle switch** and does not emit
+  `battle.battler_switched`.
 
-Only which battler is active. The party is **not** reordered, matching a
-mid-battle switch — slot 1 stays slot 1, nothing about the save changes, and
-the mod can be removed at any time.
+## Generation-specific implementation
 
-`Go! X!` is baked into a queue row when `enter` builds it, so picking a
-different Pokémon rewrites that row in place. `markParticipant` is re-run too, and the outgoing lead is struck off
-first: that function only ever adds to `self.participants`, and `enter` already
-ran it while building the intro, so marking the new one on top would leave both
-in the set and hand a free level to the Pokémon that never came out.
+### Red / Blue / Yellow
 
-`battle.battler_switched` is deliberately not emitted: this is the initial
-send-out, which vanilla does not emit either, and a mod listening for switch-ins
-should not see a switch that did not happen.
+The original v1.0.1 queue seam is retained: the mod locates the native `Go!`
+row and the matching `BATTLE_START_SENDOUT` wait immediately before the
+player's initial send-out. Unknown intro layouts fail closed and use the
+vanilla lead.
 
-## Where it stays out
+### Pokemon Gold
 
-**Link battles.** Both sides send out together, and seeing the opponent before
-choosing would be neither fair nor in step with the other client.
+Gold has a separate battle engine and UI. `battle.started` happens before the
+battle screen exists, so the mod first marks an eligible battle as pending.
+When the matching Gold battle screen is pushed, it finds the native initial
+player `sendout` event semantically and inserts one mod-owned marker directly
+before it.
 
-**The Safari Zone** has no player battler at all, and **the old man's demo**
-drives its own menu.
+Choosing a different lead rebinds only the **provisional initial battle
+identity**. It does **not** call Gold's ordinary `Battle:switch()` path. The mod
+updates `player`, `playerIndex`, participant bookkeeping, side references,
+Gold's battle-screen caches, the pending `Go!` text, and the provisional Amulet
+Coin state before allowing the one native send-out to continue.
 
-**Fewer than two healthy Pokémon.** There is nothing to decide, so no prompt —
-an empty question every time you leave town with one Pokémon would be worse
-than no mod.
+## Exclusions
 
-## Declining
+- Link battles are excluded.
+- Red / Blue / Yellow Safari and demo battles keep their original exclusions.
+- Gold's catching tutorial is excluded.
+- Gold's Bug Catching Contest is excluded; the contest masks the party down to
+  one battling Pokemon, so there is no lead decision to make.
+- Unknown or changed intro queue layouts fail closed to the vanilla lead.
 
-**B** closes the picker and sends out the vanilla lead, and so does picking that
-lead deliberately. Either way there is no dead end.
+## Gold notes
 
-Picking a **fainted** Pokémon gets the same refusal as trying to switch to one
-mid-battle — `There's no will to fight!` — and then the picker back.
-`forceSwitch` does not guard fainted picks itself: `PartyMenu` pops and calls
-back for whatever the cursor is on, and the engine's own `ChooseNextMon` caller
-filters exactly the same way.
+Gold uses a separate battle engine, so its implementation is intentionally kept
+separate from the Red / Blue / Yellow backend. The normal trainer flow remains:
 
-That caller can stop at the message, because the menu-phase guard reopens the
-menu for a player with nothing out. Here the vanilla lead is alive and no guard
-fires, so the reopen is explicit: `nextInsert` is zeroed first (only `fn` rows
-reset it, and this is a `ui` row), and since the queue is consumed from the
-front the message lands next and the picker right behind it.
+1. Opponent appears first.
+2. The party picker opens.
+3. Choose the Pokemon that should make the initial send-out.
+4. The selected Pokemon is sent out through Gold's native send-out sequence.
 
-## Tests
+`ASK BEFORE = ALL BATTLES` also enables the prompt for compatible wild battles.
+The catching tutorial and Bug Catching Contest remain intentionally excluded.
 
+## Automated tests
+
+From the mod directory:
+
+```sh
+CHOOSE_LEAD_MAIN="$PWD/main.lua" texlua tests/choose_lead_test.lua
+CHOOSE_LEAD_MAIN="$PWD/main.lua" texlua tests/choose_lead_gold_test.lua
 ```
-lua tests/choose_lead_test.lua
-```
+
+The first suite locks the Red/Blue/Yellow v1.0.1 contract. The second models
+the current Gold battle constructor, battle-screen intro queue and direct party
+picker contract and verifies lead rebinding, participant correction, no
+ordinary switch path, exactly one initial send-out, UI cache synchronization,
+Amulet Coin correction, Egg/fainted refusal, exclusions and state cleanup.

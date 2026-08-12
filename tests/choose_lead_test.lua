@@ -5,6 +5,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local modPath = os.getenv("CHOOSE_LEAD_MAIN") or "mods/choose_lead/main.lua"
 
+package.loaded["src.core.GameVersion"] = { generation = function() return 1 end }
 package.loaded["src.core.Timing"] = { BATTLE_START_SENDOUT = 40 }
 
 local madeBattlers = {}
@@ -190,6 +191,29 @@ setOption("enabled", false)
 check("disabled mod inserts nothing", inserts{}, false)
 setOption("enabled", true)
 check("re-enabling restores it", inserts{}, true)
+
+-- Consecutive battles do not carry any queue/picker state between instances.
+local consecutive1 = makeBattle()
+local consecutive1Before = #consecutive1.queue
+emit("battle.started", { battle = consecutive1 })
+check("first consecutive trainer gets one picker", #consecutive1.queue, consecutive1Before + 1)
+local consecutive2 = makeBattle{ kind = "wild" }
+local consecutive2Before = #consecutive2.queue
+emit("battle.started", { battle = consecutive2 })
+check("following default wild inherits no picker", #consecutive2.queue, consecutive2Before)
+local consecutive3 = makeBattle()
+local consecutive3Before = #consecutive3.queue
+emit("battle.started", { battle = consecutive3 })
+check("next trainer starts cleanly", #consecutive3.queue, consecutive3Before + 1)
+
+-- In the v1.0.1 direct PartyMenu contract, B is handled by PartyMenu itself:
+-- no onSwitch callback fires, so the provisional lead and greeting remain.
+battle = makeBattle()
+emit("battle.started", { battle = battle })
+local cancelScreen = battle.queue[4].ui()
+check("Gen 1 picker delegates B cancel to PartyMenu", cancelScreen.opts.onCancel, nil)
+check("simulated B cancel leaves active mon untouched", battle.player.mon, CHARMANDER)
+check("simulated B cancel leaves greeting untouched", battle.queue[9].text, "Go! CHARMANDER!")
 
 -- an intro that does not look like the engine's is left untouched rather
 -- than guessed at
