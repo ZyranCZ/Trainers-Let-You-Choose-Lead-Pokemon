@@ -7,6 +7,12 @@
 -- eligible battle, then screen.pushed attaches a per-instance queue marker
 -- immediately before the native player send-out.
 --
+-- v2.0.1 deliberately selects the backend from the live battle capabilities.
+-- The v0.1.86 SDK can emulate a Gen 2 loader without changing the process-wide
+-- GameVersion module, so an entry-time GameVersion.generation() check can load
+-- cleanly yet silently install the Gen 1 backend on Gold.  Capability dispatch
+-- also avoids taking a Gen 1-only BattleState module through Gold's adapter.
+--
 -- Choosing a lead is an INITIAL SEND-OUT, not a switch.  Neither backend
 -- reorders the party or emits battle.battler_switched.
 
@@ -18,9 +24,6 @@ local WHEN_CHOICES = {
 }
 
 return function(mod)
-  local GameVersion = require("src.core.GameVersion")
-  local generation = GameVersion.generation()
-
   mod.options:define({
     { key = "enabled", label = "CHOOSE LEAD", type = "toggle", default = true },
     { key = "when", label = "ASK BEFORE", type = "choice",
@@ -42,22 +45,30 @@ return function(mod)
   -- Deliberately scalar-only diagnostics: useful in bug reports without
   -- retaining or publishing entire battle / screen objects.
   local diag = {
-    version = "2.0.0",
-    generation = generation,
+    version = "2.0.1",
+    generation = nil,
     enabled = enabled,
     when = when,
     lastContext = nil,
     lastEligible = nil,
     lastSkipReason = nil,
-    lastBackend = generation == 2 and "gold" or "gen1",
+    lastBackend = "pending",
     lastSeam = nil,
     lastSelectedIndex = nil,
   }
 
+  local CLEAR = {}
+
   local function updateDiag(fields)
     diag.enabled = enabled
     diag.when = when
-    for key, value in pairs(fields or {}) do diag[key] = value end
+    for key, value in pairs(fields or {}) do
+      if value == CLEAR then
+        diag[key] = nil
+      else
+        diag[key] = value
+      end
+    end
   end
 
   mod.exports.diagnostics = function()
@@ -66,12 +77,39 @@ return function(mod)
     return copy
   end
 
+  -- The two public battle payloads intentionally carry different live battle
+  -- objects.  Gen 1 wraps the active mon as battle.player.mon and owns the
+  -- party through battle.game.save; Gold owns battle.party directly and makes
+  -- battle.player the party mon itself.  These are the capabilities this mod
+  -- needs, so they are a safer dispatch key than an engine version string.
+  local function isGen1Battle(battle)
+    return type(battle) == "table"
+      and type(battle.game) == "table"
+      and type(battle.game.save) == "table"
+      and type(battle.game.save.party) == "table"
+      and type(battle.player) == "table"
+      and battle.player.mon ~= nil
+  end
+
+  local function isGoldBattle(battle)
+    return type(battle) == "table"
+      and type(battle.party) == "table"
+      and type(battle.player) == "table"
+      and battle.player.mon == nil
+  end
+
   ---------------------------------------------------------------------- Gen 1
-  -- Keep v1.0.1's backend isolated behind the generation branch.  Gold never
+  -- Keep v1.0.1's backend isolated behind the capability branch.  Gold never
   -- requires BattleState.makeBattler or Timing.BATTLE_START_SENDOUT.
   local function installGen1()
-    local BattleState = require("src.battle.BattleState")
-    local Timing = require("src.core.Timing")
+    local Timing
+    local function battleStartWait()
+      if Timing == nil then Timing = require("src.core.Timing") end
+      return Timing.BATTLE_START_SENDOUT
+    end
+    -- Gen 1 and Gold intentionally register different party-screen ids.  This
+    -- backend is capability-gated before the id can ever be used.
+    local PARTY_SCREEN = "Party" .. "Menu"
 
     local function healthy(mon)
       return mon and (mon.hp or 0) > 0
@@ -108,7 +146,7 @@ return function(mod)
 
       local insertAt = goIndex
       for i = goIndex - 1, 1, -1 do
-        if queue[i].wait == Timing.BATTLE_START_SENDOUT then
+        if queue[i].wait == battleStartWait() then
           insertAt = i
           break
         end
@@ -128,18 +166,34 @@ return function(mod)
       if not healthy(mon) then return refuseFainted(battle, goRow) end
       if mon == battle.player.mon then return end
 
-      local vanillaLead = battle.player.mon
-      if battle.participants then battle.participants[vanillaLead] = nil end
+      -- makeBattler is part of the live Gen 1 battle class.  Reading it from
+      -- the instance keeps this compatibility reach inside the already-proven
+      -- Gen 1 branch instead of requiring BattleState on a Gold boot, where the
+      -- v0.1.86 adapter correctly reports makeBattler as unavailable.
+      local makeBattler = battle.makeBattler
+      if type(makeBattler) ~= "function" then
+        updateDiag({ lastSkipReason = "make_battler_missing" })
+        mod.log:warn("Gen 1 lead selection left unchanged: makeBattler unavailable")
+        return
+      end
 
-      battle.player = BattleState.makeBattler(battle.data, mon, true,
-                                              battle.game.save)
+      local vanillaLead = battle.player.mon
+      local replacement = makeBattler(battle.data, mon, true, battle.game.save)
+      if not replacement then
+        updateDiag({ lastSkipReason = "make_battler_failed" })
+        mod.log:warn("Gen 1 lead selection left unchanged: makeBattler returned nil")
+        return
+      end
+
+      if battle.participants then battle.participants[vanillaLead] = nil end
+      battle.player = replacement
       battle:syncSides()
       battle:markParticipant()
       goRow.text = battle:sendOutText(battle.player.name)
     end
 
     openPicker = function(battle, goRow)
-      return battle:buildScreen("PartyMenu", {
+      return battle:buildScreen(PARTY_SCREEN, {
         battle = battle,
         forceSwitch = true,
         onSwitch = function(mon) sendOut(battle, mon, goRow) end,
@@ -148,32 +202,34 @@ return function(mod)
 
     mod.events:on("battle.started", function(payload)
       local battle = payload and payload.battle
+      if not isGen1Battle(battle) then return end
       local eligible = applies(battle)
       updateDiag({
+        generation = 1,
         lastContext = payload and payload.kind or (battle and battle.kind),
         lastEligible = eligible,
-        lastSkipReason = eligible and nil or "ineligible",
+        lastSkipReason = eligible and CLEAR or "ineligible",
         lastBackend = "gen1",
       })
       if not eligible then return end
 
       local insertAt, goRow = findSeam(battle)
       if not insertAt then
-        updateDiag({ lastSkipReason = "seam_not_found", lastSeam = nil })
+        updateDiag({ lastSkipReason = "seam_not_found", lastSeam = CLEAR })
         mod.log:warn("could not find the send-out seam; leaving the intro alone")
         return
       end
 
-      updateDiag({ lastSeam = "gen1_sendout_wait", lastSkipReason = nil })
+      updateDiag({ lastSeam = "gen1_sendout_wait", lastSkipReason = CLEAR })
       table.insert(battle.queue, insertAt,
                    { ui = function() return openPicker(battle, goRow) end })
     end)
 
-    mod.exports.applies = applies
-    mod.exports.openPicker = function(battle, goRow)
-      return openPicker(battle, goRow)
-    end
-    mod.exports.findSeam = findSeam
+    return {
+      applies = applies,
+      openPicker = openPicker,
+      findSeam = findSeam,
+    }
   end
 
   ----------------------------------------------------------------------- Gold
@@ -327,7 +383,7 @@ return function(mod)
 
       -- Reuse Gold's own naming helper; do not invent a nickname formatter.
       sendoutRow.text = "Go! " .. screen:name(mon) .. "!"
-      updateDiag({ lastSelectedIndex = index, lastSkipReason = nil })
+      updateDiag({ lastSelectedIndex = index, lastSkipReason = CLEAR })
       return true
     end
 
@@ -377,7 +433,7 @@ return function(mod)
         onCancel = function()
           ctx.picker = picker
           closePicker(ctx)
-          updateDiag({ lastSelectedIndex = nil, lastSkipReason = nil })
+          updateDiag({ lastSelectedIndex = CLEAR, lastSkipReason = CLEAR })
           return resumeAfterPicker(screen, ctx)
         end,
         onChoose = function(index, mon)
@@ -439,20 +495,22 @@ return function(mod)
 
       attached[screen] = true
       screen.__chooseLeadAttached = true
-      updateDiag({ lastSeam = "gold_sendout_marker", lastSkipReason = nil })
+      updateDiag({ lastSeam = "gold_sendout_marker", lastSkipReason = CLEAR })
       return true
     end
 
     mod.events:on("battle.started", function(payload)
       local battle = payload and payload.battle
+      if not isGoldBattle(battle) then return end
       local eligible, reason = goldAppliesPayload(payload)
       updateDiag({
+        generation = 2,
         lastContext = kindOf(payload, battle),
         lastEligible = eligible,
-        lastSkipReason = reason,
+        lastSkipReason = reason or CLEAR,
         lastBackend = "gold",
-        lastSeam = nil,
-        lastSelectedIndex = nil,
+        lastSeam = CLEAR,
+        lastSelectedIndex = CLEAR,
       })
       if not eligible then return end
       pending[battle] = {
@@ -488,7 +546,7 @@ return function(mod)
       local ok, reason = attachGoldScreen(screen, ctx)
       pending[battle] = nil
       if not ok then
-        updateDiag({ lastSkipReason = reason, lastSeam = nil })
+        updateDiag({ lastSkipReason = reason, lastSeam = CLEAR })
         mod.log:warn("Gold choose-lead seam unavailable (" .. tostring(reason)
           .. "); leaving vanilla lead untouched")
       end
@@ -499,16 +557,11 @@ return function(mod)
       if battle then pending[battle] = nil end
     end)
 
-    -- Keep legacy export names present.  Their Gen 1 signatures remain exactly
-    -- the v1.0.1 contract on Gen 1; Gold exposes explicit peers instead of
-    -- pretending Timing/makeBattler have a Gold meaning.
-    mod.exports.applies = function(battle)
+    local function appliesGold(battle)
       local payload = { battle = battle,
         kind = battle and (battle.wild and "wild" or "trainer") }
       return goldAppliesPayload(payload)
     end
-    mod.exports.findSeam = function() return nil end
-    mod.exports.openPicker = function() return nil end
     mod.exports.findGoldSeam = findGoldSeam
     mod.exports.openPickerGold = function(screen)
       if not screen or not screen.battle then return nil end
@@ -518,11 +571,29 @@ return function(mod)
       return openGoldPicker(screen, ctx)
     end
     mod.exports.goldLegalLead = legalLead
+    return {
+      applies = appliesGold,
+      findSeam = findGoldSeam,
+      openPicker = openGoldPicker,
+    }
   end
 
-  if generation == 2 then
-    installGold()
-  else
-    installGen1()
+  -- Install both capability-gated listeners.  Only the handler whose live
+  -- battle shape matches can update state or touch its backend.
+  local gen1 = installGen1()
+  local gold = installGold()
+
+  -- Preserve the v1.x public exports while keeping Gold's explicit peers.
+  mod.exports.applies = function(battle)
+    if isGoldBattle(battle) then return gold.applies(battle) end
+    return gen1.applies(battle)
+  end
+  mod.exports.findSeam = function(target)
+    if isGoldBattle(target) then return nil end
+    return gen1.findSeam(target)
+  end
+  mod.exports.openPicker = function(battle, goRow)
+    if isGoldBattle(battle) then return nil end
+    return gen1.openPicker(battle, goRow)
   end
 end

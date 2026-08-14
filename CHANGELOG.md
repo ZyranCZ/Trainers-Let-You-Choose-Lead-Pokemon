@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.0.1 — Gen1Recomp v0.1.86 migration
+
+- Replaced entry-time `GameVersion.generation()` routing with capability-based
+  dispatch from the live `battle.started` payload.
+- Fixed the v0.1.86 SDK/Gold case where the mod loaded with zero errors but
+  silently installed the Gen 1 backend.
+- Removed the Gold-visible `BattleState.makeBattler` require; the Gen 1 backend
+  now resolves that capability only from a proven live Gen 1 battle instance.
+- Added fail-closed handling if the Gen 1 battler constructor capability is not
+  available.
+- Corrected diagnostic-field clearing so a successful battle no longer retains
+  an earlier skip reason.
+- Preserved option keys/defaults, Gen 1 behavior, Gold behavior, link exclusions,
+  party order, participant bookkeeping and all existing public exports.
+- Added a real v0.1.86 sandbox/loader SDK suite for both declared generations.
+
 ## 2.0.0 — Gen 2 support
 
 - Removed the engine-version gate; a version string alone no longer prevents the mod from loading.

@@ -17,9 +17,9 @@ Your party is never reordered.
 - **Pokemon Yellow**
 - **Pokemon Gold (Gen 2)**
 
-Version **2.0.0** is the first stable release line with Gen 2 support. The original
-Red / Blue / Yellow behavior is preserved while Gold uses its dedicated Gen 2
-battle backend.
+Version **2.0.1** migrates that stable dual-generation release line to the
+Gen1Recomp v0.1.86 loader and sandbox. The original Red / Blue / Yellow behavior
+is preserved while Gold uses its dedicated Gen 2 battle backend.
 
 ## Options
 
@@ -99,10 +99,14 @@ From the mod directory:
 ```sh
 CHOOSE_LEAD_MAIN="$PWD/main.lua" texlua tests/choose_lead_test.lua
 CHOOSE_LEAD_MAIN="$PWD/main.lua" texlua tests/choose_lead_gold_test.lua
+luajit tests/choose_lead_sdk_test.lua
 ```
 
 The first suite locks the Red/Blue/Yellow v1.0.1 contract. The second models
 the current Gold battle constructor, battle-screen intro queue and direct party
 picker contract and verifies lead rebinding, participant correction, no
 ordinary switch path, exactly one initial send-out, UI cache synchronization,
-Amulet Coin correction, Egg/fainted refusal, exclusions and state cleanup.
+Amulet Coin correction, Egg/fainted refusal, exclusions and state cleanup. The
+SDK suite loads the real mod through the v0.1.86 sandbox and loader for both
+declared generations, asserts `state == "loaded"`, then drives a real functional
+lead-selection effect through each generation's event path.

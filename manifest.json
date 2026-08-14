@@ -1,7 +1,7 @@
 {
   "id": "choose_lead",
   "name": "Trainers Let You Choose Lead Pokemon",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "github": "ZyranCZ/Trainers-Let-You-Choose-Lead-Pokemon",
   "api": 2,
   "entry": "main.lua",
